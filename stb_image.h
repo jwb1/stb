@@ -472,7 +472,24 @@ STBIDEF int      stbi_is_16_bit          (char const *filename);
 STBIDEF int      stbi_is_16_bit_from_file(FILE *f);
 #endif
 
+// get image info and codec type without fully decoding
+#define STBI_CODEC_UNKNOWN -1
+#define STBI_CODEC_JPEG 0
+#define STBI_CODEC_PNG 1
+#define STBI_CODEC_GIF 2
+#define STBI_CODEC_BMP 3
+#define STBI_CODEC_PSD 4
+#define STBI_CODEC_PIC 5
+#define STBI_CODEC_PNM 6
+#define STBI_CODEC_HDR 7
+#define STBI_CODEC_TGA 8
 
+STBIDEF int      stbi_info_codec_from_memory(stbi_uc const *buffer, int len, int *x, int *y, int *comp, int *codec);
+STBIDEF int      stbi_info_codec_from_callbacks(stbi_io_callbacks const *clbk, void *user, int *x, int *y, int *comp, int *codec);
+#ifndef STBI_NO_STDIO
+STBIDEF int      stbi_info_codec(char const *filename, int *x, int *y, int *comp, int *codec);
+STBIDEF int      stbi_info_codec_from_file(FILE *f, int *x, int *y, int *comp, int *codec);
+#endif
 
 // for image formats that explicitly notate that they have premultiplied alpha,
 // we just return the colors as stored in the file. set this flag to force
@@ -7406,45 +7423,72 @@ static int      stbi__pnm_info(stbi__context *s, int *x, int *y, int *comp)
 }
 #endif
 
-static int stbi__info_main(stbi__context *s, int *x, int *y, int *comp)
+static int stbi__info_main(stbi__context *s, int *x, int *y, int *comp, int *codec)
 {
    #ifndef STBI_NO_JPEG
-   if (stbi__jpeg_info(s, x, y, comp)) return 1;
+   if(stbi__jpeg_info(s,x,y,comp)) {
+       if(codec) *codec = STBI_CODEC_JPEG;
+       return 1;
+   }
    #endif
 
    #ifndef STBI_NO_PNG
-   if (stbi__png_info(s, x, y, comp))  return 1;
+   if (stbi__png_info(s, x, y, comp)) {
+       if(codec) *codec = STBI_CODEC_PNG;
+       return 1;
+   }
    #endif
 
    #ifndef STBI_NO_GIF
-   if (stbi__gif_info(s, x, y, comp))  return 1;
+   if (stbi__gif_info(s, x, y, comp)) {
+       if(codec) *codec = STBI_CODEC_GIF;
+       return 1;
+   }
    #endif
 
    #ifndef STBI_NO_BMP
-   if (stbi__bmp_info(s, x, y, comp))  return 1;
+   if (stbi__bmp_info(s, x, y, comp)) {
+       if(codec) *codec = STBI_CODEC_BMP;
+       return 1;
+   }
    #endif
 
    #ifndef STBI_NO_PSD
-   if (stbi__psd_info(s, x, y, comp))  return 1;
+   if (stbi__psd_info(s, x, y, comp)) {
+       if(codec) *codec = STBI_CODEC_PSD;
+       return 1;
+   }
    #endif
 
    #ifndef STBI_NO_PIC
-   if (stbi__pic_info(s, x, y, comp))  return 1;
+   if (stbi__pic_info(s, x, y, comp)) {
+       if(codec) *codec = STBI_CODEC_PIC;
+       return 1;
+   }
    #endif
 
    #ifndef STBI_NO_PNM
-   if (stbi__pnm_info(s, x, y, comp))  return 1;
+   if (stbi__pnm_info(s, x, y, comp)) {
+       if(codec) *codec = STBI_CODEC_PNM;
+       return 1;
+   }
    #endif
 
    #ifndef STBI_NO_HDR
-   if (stbi__hdr_info(s, x, y, comp))  return 1;
+   if (stbi__hdr_info(s, x, y, comp)) {
+       if(codec) *codec = STBI_CODEC_HDR;
+       return 1;
+   }
    #endif
 
    // test tga last because it's a crappy test!
    #ifndef STBI_NO_TGA
-   if (stbi__tga_info(s, x, y, comp))
+   if (stbi__tga_info(s, x, y, comp)) {
+       if(codec) *codec = STBI_CODEC_TGA;
        return 1;
+   }
    #endif
+   if(codec) *codec = STBI_CODEC_UNKNOWN;
    return stbi__err("unknown image type", "Image not of any known type, or corrupt");
 }
 
@@ -7467,7 +7511,7 @@ STBIDEF int stbi_info(char const *filename, int *x, int *y, int *comp)
     FILE *f = stbi__fopen(filename, "rb");
     int result;
     if (!f) return stbi__err("can't fopen", "Unable to open file");
-    result = stbi_info_from_file(f, x, y, comp);
+    result = stbi_info_from_file(f,x,y,comp,NULL);
     fclose(f);
     return result;
 }
@@ -7478,9 +7522,30 @@ STBIDEF int stbi_info_from_file(FILE *f, int *x, int *y, int *comp)
    stbi__context s;
    long pos = ftell(f);
    stbi__start_file(&s, f);
-   r = stbi__info_main(&s,x,y,comp);
+   r = stbi__info_main(&s,x,y,comp,NULL);
    fseek(f,pos,SEEK_SET);
    return r;
+}
+
+STBIDEF int stbi_info_codec(char const *filename, int *x, int *y, int *comp, int *codec)
+{
+    FILE *f = stbi__fopen(filename, "rb");
+    int result;
+    if(!f) return stbi__err( "can't fopen", "Unable to open file" );
+    result = stbi_info_from_file(f,x,y,comp,codec);
+    fclose(f);
+    return result;
+}
+
+STBIDEF int stbi_info_codec_from_file(FILE *f, int *x, int *y, int *comp, int *codec)
+{
+    int r;
+    stbi__context s;
+    long pos = ftell(f);
+    stbi__start_file(&s, f);
+    r = stbi__info_main(&s,x,y,comp,codec);
+    fseek(f, pos, SEEK_SET);
+    return r;
 }
 
 STBIDEF int stbi_is_16_bit(char const *filename)
@@ -7509,14 +7574,14 @@ STBIDEF int stbi_info_from_memory(stbi_uc const *buffer, int len, int *x, int *y
 {
    stbi__context s;
    stbi__start_mem(&s,buffer,len);
-   return stbi__info_main(&s,x,y,comp);
+   return stbi__info_main(&s,x,y,comp,NULL);
 }
 
 STBIDEF int stbi_info_from_callbacks(stbi_io_callbacks const *c, void *user, int *x, int *y, int *comp)
 {
    stbi__context s;
    stbi__start_callbacks(&s, (stbi_io_callbacks *) c, user);
-   return stbi__info_main(&s,x,y,comp);
+   return stbi__info_main(&s,x,y,comp,NULL);
 }
 
 STBIDEF int stbi_is_16_bit_from_memory(stbi_uc const *buffer, int len)
@@ -7531,6 +7596,20 @@ STBIDEF int stbi_is_16_bit_from_callbacks(stbi_io_callbacks const *c, void *user
    stbi__context s;
    stbi__start_callbacks(&s, (stbi_io_callbacks *) c, user);
    return stbi__is_16_main(&s);
+}
+
+STBIDEF int stbi_info_codec_from_memory(stbi_uc const *buffer, int len, int *x, int *y, int *comp, int *codec)
+{
+    stbi__context s;
+    stbi__start_mem(&s, buffer, len);
+    return stbi__info_main(&s,x,y,comp,codec);
+}
+
+STBIDEF int stbi_info_codec_from_callbacks(stbi_io_callbacks const *c, void *user, int *x, int *y, int *comp, int *codec)
+{
+    stbi__context s;
+    stbi__start_callbacks(&s, (stbi_io_callbacks *)c, user);
+    return stbi__info_main(&s,x,y,comp,codec);
 }
 
 #endif // STB_IMAGE_IMPLEMENTATION
